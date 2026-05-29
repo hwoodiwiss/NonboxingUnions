@@ -1,0 +1,45 @@
+<Project>
+  <Sdk Name="ViHo.PackAsAnalyzer" Version="1.0.1" />
+
+  <PropertyGroup>
+    <AnalysisMode>All</AnalysisMode>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <DebugType>portable</DebugType>
+    <DefaultClassLibFramework>net11.0</DefaultClassLibFramework>
+    <DefaultGeneratorConsumerFrameworks>net11.0</DefaultGeneratorConsumerFrameworks>
+    <Deterministic>true</Deterministic>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+  </PropertyGroup>
+  
+  <PropertyGroup Label="Package Items">
+    <Authors>Hugo Woodiwiss</Authors>
+    <Copyright>Copyright (c) Hugo Woodiwiss 2026-$([System.DateTime]::Now.ToString(yyyy))</Copyright>
+    <Description>A source generator for non-boxing discriminated unions in C#</Description>
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageProjectUrl>https://github.com/hwoodiwiss/NonboxingUnion</PackageProjectUrl>
+    <PackageReleaseNotes>$(PackageProjectUrl)/releases</PackageReleaseNotes>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  
+  <PropertyGroup>
+    <MinVerDefaultPreReleaseIdentifiers>preview</MinVerDefaultPreReleaseIdentifiers>
+    <MinVerIgnoreHeight>true</MinVerIgnoreHeight>
+    <MinVerSkip Condition=" '$(Configuration)' == 'Debug' ">true</MinVerSkip>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
+  </PropertyGroup>
+  
+  <ItemGroup Condition=" '$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)\README.md" Pack="true" PackagePath="\"/>
+    <None Include="$(MSBuildThisFileDirectory)\LICENSE" Pack="true" PackagePath="\"/>
+    <PackageReference Include="MinVer" PrivateAssets="All" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+{
+  "sdk": {
+    "version": "11.0.100-preview.4.26230.115",
+    "allowPrerelease": false,
+    "paths": ["./.dotnetcli", "$host$"],
+    "errorMessage": "The required .NET SDK version is not installed, run ./build/build.ps1 to install it locally to the project."
+  },
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
