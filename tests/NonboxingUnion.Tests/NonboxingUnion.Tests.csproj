@@ -4,11 +4,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsTestProject>true</IsTestProject>
     <Nullable>enable</Nullable>
-    <NoWarn>$(NoWarn);CA1034;CA1062;CA1707;CA2007;CA1515;</NoWarn>
+    <NoWarn>$(NoWarn);CA1034;CA1062;CA1707;CA2007;CA1515;CA1052;</NoWarn>
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\NonboxingUnion\NonboxingUnion.csproj" />
     <ProjectReference Include="..\..\src\NonboxingUnion.Generator\NonboxingUnion.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Link the dependency-free discriminator resolver so it can be unit tested directly. -->
+    <Compile Include="..\..\src\NonboxingUnion.Generator\CodeGeneration\DiscriminatorTypeResolver.cs" Link="Generator\DiscriminatorTypeResolver.cs" />
   </ItemGroup>
 </Project>
