@@ -17,15 +17,22 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        IncrementalValuesProvider<UnionToGenerate?> unions = context.SyntaxProvider
-            .ForAttributeWithMetadataName(
-                CodeGeneration.Constants.NonBoxingUnionAttributeName,
-                predicate: static (node, _) => node is StructDeclarationSyntax,
-                transform: static (ctx, _) => GetUnionToGenerate(ctx))
-            .Where(static union => union is not null);
+        // The attribute comes in two forms that share a name: the non-generic
+        // [NonBoxingUnion(typeof(...))] overload and the generic [NonBoxingUnion<...>]
+        // arities. ForAttributeWithMetadataName matches a single metadata name, so each
+        // form (the generics carry a `N arity suffix) is registered as its own provider.
+        foreach (var attributeName in CodeGeneration.Constants.NonBoxingUnionAttributeNames())
+        {
+            IncrementalValuesProvider<UnionToGenerate?> unions = context.SyntaxProvider
+                .ForAttributeWithMetadataName(
+                    attributeName,
+                    predicate: static (node, _) => node is StructDeclarationSyntax,
+                    transform: static (ctx, _) => GetUnionToGenerate(ctx))
+                .Where(static union => union is not null);
 
-        context.RegisterSourceOutput(unions.Collect(),
-            static (spc, source) => Execute(source, spc));
+            context.RegisterSourceOutput(unions.Collect(),
+                static (spc, source) => Execute(source, spc));
+        }
     }
 
     private static UnionToGenerate? GetUnionToGenerate(GeneratorAttributeSyntaxContext context)
@@ -76,7 +83,23 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
     {
         var caseTypes = new List<ITypeSymbol>();
 
-        // The attribute takes a single params Type[] parameter.
+        // Generic form: [NonBoxingUnion<Dog, Cat>] — the case types are the attribute's
+        // own type arguments rather than constructor values.
+        if (attribute.AttributeClass is { IsGenericType: true } genericAttribute)
+        {
+            foreach (var typeArgument in genericAttribute.TypeArguments)
+            {
+                if (typeArgument.TypeKind != TypeKind.Error)
+                {
+                    caseTypes.Add(typeArgument);
+                }
+            }
+
+            return caseTypes;
+        }
+
+        // Non-generic form: [NonBoxingUnion(typeof(Dog), typeof(Cat))] — the attribute
+        // takes a single params Type[] parameter.
         if (attribute.ConstructorArguments.Length != 1)
         {
             return caseTypes;

@@ -30,6 +30,17 @@ using NonboxingUnion;
 public partial struct IntOrBool;
 ```
 
+Alternatively, supply the case types as generic type arguments. This reads a little more naturally and is checked by the compiler in the same way as any other generic argument. There is a generic overload for each arity from one up to sixteen case types:
+
+```csharp
+using NonboxingUnion;
+
+[NonBoxingUnion<int, bool>]
+public partial struct IntOrBool;
+```
+
+Both forms produce identical generated code; pick whichever you prefer.
+
 **Assigning a case** uses the implicit conversions provided by the union language feature:
 
 ```csharp
