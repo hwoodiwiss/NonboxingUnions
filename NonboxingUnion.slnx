@@ -22,6 +22,7 @@
     <Project Path="src/NonboxingUnion/NonboxingUnion.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/NonboxingUnion.Generator.IncrementalTests/NonboxingUnion.Generator.IncrementalTests.csproj" />
     <Project Path="tests/NonboxingUnion.Tests/NonboxingUnion.Tests.csproj" />
   </Folder>
 </Solution>
