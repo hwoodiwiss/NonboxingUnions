@@ -17,6 +17,22 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+#if EMBED_MARKER_ATTRIBUTE
+        // In the embedded build the marker attribute is synthesised directly into
+        // the consumer's compilation (as an internal, compilation-scoped type) so
+        // that no runtime assembly reference is required. It must be emitted from
+        // post-initialization output for ForAttributeWithMetadataName to see it.
+        context.RegisterPostInitializationOutput(static ctx =>
+        {
+            ctx.AddEmbeddedAttributeDefinition();
+            ctx.AddSource(
+                "NonBoxingUnionAttribute.g.cs",
+                SourceText.From(
+                    CodeSnippets.EmbeddedMarkerAttribute(AssemblyMetadata.Name, AssemblyMetadata.Version),
+                    Encoding.UTF8));
+        });
+#endif
+
         IncrementalValuesProvider<UnionToGenerate?> unions = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 CodeGeneration.Constants.NonBoxingUnionAttributeName,

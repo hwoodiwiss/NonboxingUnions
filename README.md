@@ -19,6 +19,19 @@ That's where Nonboxing Unions comes in. With Nonboxing Unions, you annotate a `p
 - the union access members (`Value`, `HasValue`, `TryGetValue`), value equality, and a constructor for each case;
 - the `[Union]` attribute and `IUnion` implementation, so the type participates in the C# union language feature (implicit conversions and exhaustive pattern matching).
 
+## Installation
+
+There are two packages. They are functionally identical &mdash; you write exactly the same `[NonBoxingUnion(...)]` code against either &mdash; and you should reference **one or the other, not both**:
+
+| Package | Marker attribute | Runtime dependency |
+| --- | --- | --- |
+| [`NonboxingUnion`](https://www.nuget.org/packages/NonboxingUnion/) | A **public** `NonBoxingUnionAttribute` shipped in a small runtime assembly. | Adds `NonboxingUnion.dll` as a dependency. |
+| [`NonboxingUnion.Embedded`](https://www.nuget.org/packages/NonboxingUnion.Embedded/) | An **internal** marker the generator embeds straight into your compilation. | **None** &mdash; analyzer-only. |
+
+`NonboxingUnion.Embedded` is aimed at **library authors**: because the marker is generated as an `internal` type inside your own assembly, consuming the generator never forces a transitive dependency on your downstream users. It uses the .NET 10 embedded-marker-attribute mechanism ([`AddEmbeddedAttributeDefinition`](https://andrewlock.net/exploring-dotnet-10-preview-features-4-solving-the-source-generator-marker-attribute-problem-in-dotnet-10/) + `[Microsoft.CodeAnalysis.EmbeddedAttribute]`), so the same attribute can be embedded across many projects &mdash; even ones linked by `[InternalsVisibleTo]` &mdash; without `CS0436` conflicts. It requires the .NET SDK 9.0.300+ / Roslyn 4.14+ toolchain.
+
+Pick `NonboxingUnion` if you need the marker attribute to be a public, referenceable type.
+
 ## Usage
 
 Mark a `partial struct` with `[NonBoxingUnion(...)]`, passing the case types as `typeof(...)` arguments. The struct body can be left empty &mdash; the generator fills in everything.

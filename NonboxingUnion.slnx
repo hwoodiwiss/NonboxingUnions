@@ -18,10 +18,12 @@
     <File Path=".github/workflows/dependabot-autoapprove.yml" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/NonboxingUnion.Embedded/NonboxingUnion.Embedded.csproj" />
     <Project Path="src/NonboxingUnion.Generator/NonboxingUnion.Generator.csproj" />
     <Project Path="src/NonboxingUnion/NonboxingUnion.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/NonboxingUnion.EmbeddedTests/NonboxingUnion.EmbeddedTests.csproj" />
     <Project Path="tests/NonboxingUnion.Tests/NonboxingUnion.Tests.csproj" />
   </Folder>
 </Solution>
