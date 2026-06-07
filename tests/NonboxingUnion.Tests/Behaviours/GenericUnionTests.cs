@@ -2,10 +2,11 @@ namespace NonboxingUnion.Tests.Behaviours;
 
 /// <summary>
 /// Exercises unions whose variants are generic type parameters of the union struct itself.
-/// Three configurations are covered:
+/// Four configurations are covered:
 ///   - Unconstrained type parameters (the typical Result&lt;T, TError&gt; pattern).
 ///   - A struct-constrained type parameter (stored as a value type, no boxing).
 ///   - A class-constrained type parameter (stored as a nullable reference, no boxing).
+///   - Mixed: type parameters combined with concrete types from the attribute.
 /// </summary>
 public partial class GenericUnionTests
 {
@@ -136,5 +137,65 @@ public partial class GenericUnionTests
 
         await Assert.That(result.HasValue).IsFalse();
         await Assert.That(result.Value).IsNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // Option<T> — type parameter variant mixed with a concrete None sentinel.
+    // Variants (in order): T (unconstrained), string (concrete, from attribute).
+    // This exercises the path where type parameters and typeof(...) are combined.
+    // -------------------------------------------------------------------------
+
+    [NonBoxingUnion(typeof(string))]
+    public partial struct TOrString<T>;
+
+    [Test]
+    public async Task TOrString_TypeParameterVariant_RoundTripsThroughTryGetValue()
+    {
+        TOrString<int> union = 42;
+
+        var success = union.TryGetValue(out int value);
+
+        await Assert.That(success).IsTrue();
+        await Assert.That(value).IsEqualTo(42);
+    }
+
+    [Test]
+    public async Task TOrString_ConcreteVariant_RoundTripsThroughTryGetValue()
+    {
+        TOrString<int> union = "hello";
+
+        var success = union.TryGetValue(out string value);
+
+        await Assert.That(success).IsTrue();
+        await Assert.That(value).IsEqualTo("hello");
+    }
+
+    [Test]
+    public async Task TOrString_TryGetValue_ReturnsFalseForInactiveVariant()
+    {
+        TOrString<int> union = 1;
+
+        var success = union.TryGetValue(out string _);
+
+        await Assert.That(success).IsFalse();
+    }
+
+    [Test]
+    public async Task TOrString_PatternMatching_DispatchesInDeclarationOrder()
+    {
+        // Type parameter variants come first (T), then attribute types (string).
+        TOrString<int> intUnion = 7;
+        TOrString<int> strUnion = "world";
+
+        await Assert.That(Describe(intUnion)).IsEqualTo("int: 7");
+        await Assert.That(Describe(strUnion)).IsEqualTo("string: world");
+        await Assert.That(Describe(default)).IsEqualTo("none");
+
+        static string Describe(TOrString<int> u) => u switch
+        {
+            int i => $"int: {i}",
+            string s => $"string: {s}",
+            null => "none",
+        };
     }
 }
