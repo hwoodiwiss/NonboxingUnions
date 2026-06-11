@@ -9,7 +9,8 @@ param (
 )
 
 $testProjectPaths = @(
-    "tests/NonboxingUnion.Tests/NonboxingUnion.Tests.csproj"
+    "tests/NonboxingUnion.Tests/NonboxingUnion.Tests.csproj",
+    "tests/NonboxingUnion.Generator.IncrementalTests/NonboxingUnion.Generator.IncrementalTests.csproj"
 )
 
 $packageProjectPaths = @(
