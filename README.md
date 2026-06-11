@@ -76,14 +76,52 @@ A `default(IntOrBool)` has no active case: `HasValue` is `false`, `Value` is `nu
 | Reference types | `typeof(string)`, `typeof(Dog)` | Stored in a nullable field; the case type and constructor parameter stay non-nullable. |
 | Nullable value types | `typeof(int?)` | Collapses to the underlying type (`int`) for the case type and `TryGetValue` out parameter, per the union spec. |
 | Nested types | `typeof(Outer.Inner.Thing)` | Fully-qualified names are used, so nesting and namespaces are handled correctly. |
+| Generic type parameters | *(see below)* | The struct's own type parameters are automatically included as cases. |
 
 The union struct itself may be nested inside other types &mdash; all of its containing types must be `partial`.
 
-For more detail on storage layout, the discriminator, and the generated members, see [docs/generated-code.md](docs/generated-code.md).
+### Generic unions
+
+A union struct can declare generic type parameters; those parameters are automatically treated as cases (in declaration order, before any `typeof(...)` arguments in the attribute). This makes it straightforward to build generic container types such as `Result<T, TError>`:
+
+```csharp
+[NonBoxingUnion]
+public partial struct Result<T, TError>;
+```
+
+```csharp
+Result<int, string> ok = 42;
+Result<int, string> err = "something went wrong";
+
+string description = ok switch
+{
+    int value  => $"ok: {value}",
+    string msg => $"err: {msg}",
+    null       => "no value",
+};
+```
+
+Constraints on the type parameters drive the storage strategy — the same rules that apply to concrete case types:
+
+| Constraint | Storage | Behaviour |
+| --- | --- | --- |
+| `where T : struct` | `T` | Stored inline as a value type, identical to a concrete value-type case. |
+| `where T : class` | `T?` | Stored in a nullable reference field, identical to a concrete reference-type case. |
+| *(unconstrained)* | `T?` | Stored using C# 8's MaybeNull annotation &mdash; **not** `Nullable<T>`, so value-type call sites incur no boxing. |
+
+Type parameters and concrete `typeof(...)` cases can be mixed freely. The type parameters always come first:
+
+```csharp
+// Two cases: T (type parameter, first), string (concrete, second).
+[NonBoxingUnion(typeof(string))]
+public partial struct TOrString<T>;
+```
+
+For more detail on storage layout and the generated members, see [docs/generated-code.md](docs/generated-code.md).
 
 ## Requirements
 
 - The annotated type must be a `partial struct`.
-- It must declare at least one case type.
+- It must declare at least one case: either via `typeof(...)` arguments in the attribute, via generic type parameters on the struct, or both.
 - Every containing type must also be `partial`.
 - A target framework whose runtime provides `System.Runtime.CompilerServices.UnionAttribute` and `IUnion`, with the C# union language feature enabled.

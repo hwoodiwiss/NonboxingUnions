@@ -21,9 +21,20 @@ internal sealed class UnionBuilder
 
     public UnionBuilder AddTypeDeclaration(UnionToGenerate union)
     {
+        var fullTypeName = GetFullTypeName(union);
+
         _builder.AppendLine($"{_typeIndentation}[global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"{AssemblyMetadata.Name}\", \"{AssemblyMetadata.Version}\")]");
         _builder.AppendLine($"{_typeIndentation}[{Constants.UnionAttributeType}]");
-        _builder.AppendLine($"{_typeIndentation}{union.Accessibility} partial struct {union.Name} : {Constants.UnionInterfaceType}, global::System.IEquatable<{union.Name}>");
+        _builder.AppendLine($"{_typeIndentation}{union.Accessibility} partial struct {fullTypeName} : {Constants.UnionInterfaceType}, global::System.IEquatable<{fullTypeName}>");
+
+        foreach (var typeParam in union.TypeParameters)
+        {
+            if (!string.IsNullOrEmpty(typeParam.ConstraintClause))
+            {
+                _builder.AppendLine($"{_typeIndentation}    {typeParam.ConstraintClause}");
+            }
+        }
+
         _builder.AppendLine($"{_typeIndentation}{{");
 
         return this;
@@ -103,14 +114,15 @@ internal sealed class UnionBuilder
     {
         foreach (var variant in union.Variants)
         {
-            // For reference types the field is null when the case is inactive,
-            // so the null-forgiving operator keeps the non-nullable out contract.
-            // For nullable value-type cases the case type collapses to the
-            // underlying type, so the stored Nullable<T> is unwrapped.
+            // For reference types and unconstrained type parameters the field is nullable
+            // (T? / Dog?) for inactive cases, so the null-forgiving operator bridges the
+            // gap to the non-nullable out contract.
+            // For nullable value-type cases the case type collapses to the underlying type,
+            // so the stored Nullable<T> is unwrapped.
             var assignment = variant switch
             {
                 { IsNullableValueType: true } => $"{variant.FieldName}.GetValueOrDefault()",
-                { IsReferenceType: true } => $"{variant.FieldName}!",
+                { HasNullableStorage: true } => $"{variant.FieldName}!",
                 _ => variant.FieldName,
             };
 
@@ -127,10 +139,10 @@ internal sealed class UnionBuilder
 
     public UnionBuilder AddEqualityMembers(UnionToGenerate union)
     {
-        var typeName = union.Name;
+        var fullTypeName = GetFullTypeName(union);
 
         // Equals(T) compares the active discriminator and the corresponding field.
-        _builder.AppendLine($"{_memberIndentation}public bool Equals({typeName} other)");
+        _builder.AppendLine($"{_memberIndentation}public bool Equals({fullTypeName} other)");
         _builder.AppendLine($"{_memberIndentation}{{");
         _builder.AppendLine($"{_bodyIndentation}if ({Constants.DiscriminatorFieldName} != other.{Constants.DiscriminatorFieldName})");
         _builder.AppendLine($"{_bodyIndentation}{{");
@@ -150,7 +162,7 @@ internal sealed class UnionBuilder
         _builder.AppendLine($"{_memberIndentation}}}");
         _builder.AppendLine();
 
-        _builder.AppendLine($"{_memberIndentation}public override bool Equals(object? obj) => obj is {typeName} other && Equals(other);");
+        _builder.AppendLine($"{_memberIndentation}public override bool Equals(object? obj) => obj is {fullTypeName} other && Equals(other);");
         _builder.AppendLine();
 
         _builder.AppendLine($"{_memberIndentation}public override int GetHashCode()");
@@ -173,9 +185,9 @@ internal sealed class UnionBuilder
         _builder.AppendLine($"{_memberIndentation}}}");
         _builder.AppendLine();
 
-        _builder.AppendLine($"{_memberIndentation}public static bool operator ==({typeName} left, {typeName} right) => left.Equals(right);");
+        _builder.AppendLine($"{_memberIndentation}public static bool operator ==({fullTypeName} left, {fullTypeName} right) => left.Equals(right);");
         _builder.AppendLine();
-        _builder.AppendLine($"{_memberIndentation}public static bool operator !=({typeName} left, {typeName} right) => !left.Equals(right);");
+        _builder.AppendLine($"{_memberIndentation}public static bool operator !=({fullTypeName} left, {fullTypeName} right) => !left.Equals(right);");
         _builder.AppendLine();
 
         return this;
@@ -186,5 +198,25 @@ internal sealed class UnionBuilder
         _builder.AppendLine($"{_typeIndentation}}}");
 
         return this;
+    }
+
+    /// <summary>
+    /// Returns <c>Name</c> for non-generic unions, or <c>Name&lt;T, TError&gt;</c>
+    /// (using the declared type parameter names) for generic ones.
+    /// </summary>
+    private static string GetFullTypeName(UnionToGenerate union)
+    {
+        if (union.TypeParameters.IsDefaultOrEmpty)
+        {
+            return union.Name;
+        }
+
+        var names = new string[union.TypeParameters.Length];
+        for (var i = 0; i < union.TypeParameters.Length; i++)
+        {
+            names[i] = union.TypeParameters[i].Name;
+        }
+
+        return $"{union.Name}<{string.Join(", ", names)}>";
     }
 }
