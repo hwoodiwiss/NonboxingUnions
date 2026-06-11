@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <NoWarn>NU5128</NoWarn>
+    <AnalyzerLanguage>cs</AnalyzerLanguage>
+    <!-- AddEmbeddedAttributeDefinition / the [Embedded] attribute require Roslyn 4.14+. -->
+    <AnalyzerRoslynVersion>4.14</AnalyzerRoslynVersion>
+    <!-- Analyzer-only package: the marker attribute is generated, so there is no runtime assembly to ship. -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <Description>A source generator for non-boxing discriminated unions in C#. This package embeds the marker attribute directly into your compilation, so consuming it adds no runtime dependency. Ideal for library authors.</Description>
+    <DefineConstants>$(DefineConstants);EMBED_MARKER_ATTRIBUTE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" GeneratePathProperty="true" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Microsoft.CodeAnalysis" />
+  </ItemGroup>
+
+  <!-- Share the generator source. The only difference from the runtime package's
+       analyzer is the EMBED_MARKER_ATTRIBUTE constant, which makes the generator
+       synthesise the marker attribute instead of relying on a referenced assembly. -->
+  <ItemGroup>
+    <Compile Include="..\NonboxingUnion.Generator\**\*.cs"
+             Exclude="..\NonboxingUnion.Generator\**\obj\**\*.cs;..\NonboxingUnion.Generator\**\bin\**\*.cs"
+             LinkBase="Generator" />
+  </ItemGroup>
+
+  <!-- Pack as an analyzer only. roslyn4.14 ensures older compilers (which lack
+       AddEmbeddedAttributeDefinition) simply don't load it. -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/roslyn4.14/cs" Visible="false" />
+  </ItemGroup>
+</Project>
