@@ -79,7 +79,7 @@ The discriminator uses the **smallest unsigned integer** that can represent ever
 In practice almost every union uses `byte`. Picking the smallest type keeps the struct as compact as possible.
 
 > *Note :notebook:*
-> - A union must declare at least one case type; an empty `[NonBoxingUnion]` produces nothing.
+> - A union must declare at least one case: either via `typeof(...)` arguments in the attribute, via generic type parameters on the struct, or both. A plain `[NonBoxingUnion]` on a non-generic struct produces nothing.
 
 ## Storage layout
 
@@ -107,6 +107,44 @@ A nullable value-type case, e.g. `typeof(int?)`, collapses to its underlying typ
 ### Nested types
 
 Case types are emitted using their fully-qualified names, so deeply nested and namespaced case types are handled without ambiguity.
+
+### Generic type parameters
+
+A union struct can declare generic type parameters. Those parameters are automatically treated as cases (in declaration order), before any `typeof(...)` cases listed in the attribute. `typeof(T)` cannot be used in attribute arguments — C# forbids it (CS0416) — so the generator reads the type parameters directly from the struct symbol instead.
+
+```csharp
+// All cases from type parameters:
+[NonBoxingUnion]
+public partial struct Result<T, TError>;
+
+// Mixed: T and TError from the struct, string from the attribute:
+[NonBoxingUnion(typeof(string))]
+public partial struct TOrString<T>;
+```
+
+The generated partial declaration re-emits the type parameter list and any constraint clauses:
+
+```csharp
+public partial struct Result<T, TError>
+    : global::System.Runtime.CompilerServices.IUnion, global::System.IEquatable<Result<T, TError>>
+{
+    private T?     _t;      // unconstrained — see below
+    private TError? _tError;
+    ...
+    public bool Equals(Result<T, TError> other) { ... }
+    public static bool operator ==(Result<T, TError> left, Result<T, TError> right) => ...
+}
+```
+
+The storage strategy is determined by the constraints on each type parameter:
+
+| Constraint | Field type | Behaviour |
+| --- | --- | --- |
+| `where T : struct` | `T` | Stored inline as a value type, identical to a concrete value-type case. |
+| `where T : class` | `T?` | Stored in a nullable reference field, identical to a concrete reference-type case. The `TryGetValue` out parameter and constructor parameter stay non-nullable. |
+| *(unconstrained)* | `T?` | Uses C# 8's MaybeNull annotation. At runtime this is **not** `Nullable<T>`: for a value-type `T` the field is just `T` with a nullability hint, so no boxing occurs. The null-forgiving operator (`!`) is used in `TryGetValue`, matching the reference-type pattern. |
+
+The unconstrained `T?` form is chosen over plain `T` to avoid CS8618 ("non-nullable field must contain a non-null value when exiting constructor"): because only one field is assigned in each constructor, the compiler would otherwise flag all the inactive fields as potentially uninitialized for reference-type call sites.
 
 ## Equality
 
