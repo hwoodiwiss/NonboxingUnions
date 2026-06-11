@@ -15,6 +15,13 @@ namespace NonboxingUnion.Generator;
 [Generator]
 public class NonBoxingUnionGenerator : IIncrementalGenerator
 {
+    /// <summary>
+    /// Tracking name for the step that turns a marked struct into the equatable
+    /// <see cref="UnionToGenerate"/> model. Exposed so incremental-caching tests can
+    /// assert this step is reused (rather than re-run) for unrelated edits.
+    /// </summary>
+    public const string GetUnionStep = "GetUnion";
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         // The attribute comes in two forms that share a name: the non-generic
@@ -28,10 +35,14 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
                     attributeName,
                     predicate: static (node, _) => node is StructDeclarationSyntax,
                     transform: static (ctx, _) => GetUnionToGenerate(ctx))
-                .Where(static union => union is not null);
+                .Where(static union => union is not null)
+                .WithTrackingName(GetUnionStep);
 
-            context.RegisterSourceOutput(unions.Collect(),
-                static (spc, source) => Execute(source, spc));
+            // Register the output per-union (rather than over a Collect()ed array) so that
+            // editing or adding one union does not invalidate the generated output of the
+            // others. Each union already produces an independently named source file.
+            context.RegisterSourceOutput(unions,
+                static (spc, union) => Execute(union, spc));
         }
     }
 
@@ -54,7 +65,17 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
             return null;
         }
 
-        var caseTypes = GetCaseTypes(attribute);
+        // Variants = type parameters (in declaration order) + any concrete types from the attribute.
+        // This lets callers write [NonBoxingUnion] on a generic struct to use only the type
+        // parameters as variants, or mix in concrete types via typeof(...).
+        var caseTypes = new List<ITypeSymbol>(unionSymbol.TypeParameters.Length);
+        foreach (var typeParam in unionSymbol.TypeParameters)
+        {
+            caseTypes.Add(typeParam);
+        }
+
+        caseTypes.AddRange(GetCaseTypes(attribute));
+
         if (caseTypes.Count == 0)
         {
             return null;
@@ -70,13 +91,15 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
         var containingNamespace = unionSymbol.ContainingNamespace.IsGlobalNamespace
             ? string.Empty
             : unionSymbol.ContainingNamespace.ToDisplayString();
+        var typeParameters = GetTypeParameters(unionSymbol);
 
         return new UnionToGenerate(
             containingNamespace,
             unionSymbol.GetAccessibilityString(),
             unionSymbol.Name,
             containingTypes,
-            variants);
+            variants,
+            typeParameters);
     }
 
     private static List<ITypeSymbol> GetCaseTypes(AttributeData attribute)
@@ -140,9 +163,23 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
             var caseTypeName = effectiveCaseType.GetFullyQualifiedTypeName();
             var fullyQualifiedStorageType = caseType.GetFullyQualifiedTypeName();
 
-            // Reference-type fields are left null for inactive cases, so they must
-            // be declared nullable to satisfy nullable reference analysis.
-            var storageTypeName = effectiveCaseType.IsReferenceType
+            // An unconstrained type parameter (no struct/class constraint) could be either
+            // a reference or value type at the call site.  Storing it as T? (MaybeNull
+            // annotation in C# 8+, NOT Nullable<T>) means:
+            //   - value-type T: no boxing, zero runtime overhead
+            //   - reference-type T: behaves like a nullable reference
+            // This prevents CS8618 in constructors that don't set the field.
+            var isUnconstrainedTypeParam = effectiveCaseType is ITypeParameterSymbol
+            {
+                HasValueTypeConstraint: false,
+                HasReferenceTypeConstraint: false
+            };
+
+            // Nullable storage is needed whenever the field may be left null for inactive
+            // cases: reference types and unconstrained type parameters.
+            var hasNullableStorage = effectiveCaseType.IsReferenceType || isUnconstrainedTypeParam;
+
+            var storageTypeName = hasNullableStorage
                 ? $"{fullyQualifiedStorageType}?"
                 : fullyQualifiedStorageType;
 
@@ -158,7 +195,8 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
                 fieldName,
                 memberName,
                 effectiveCaseType.IsReferenceType,
-                isNullableValueType));
+                isNullableValueType,
+                hasNullableStorage));
         }
 
         return builder.MoveToImmutable();
@@ -225,24 +263,74 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
         return [.. stack];
     }
 
-    private static void Execute(ImmutableArray<UnionToGenerate?> unions, SourceProductionContext context)
+    private static ImmutableArray<TypeParameter> GetTypeParameters(INamedTypeSymbol unionSymbol)
     {
-        if (unions.IsDefaultOrEmpty)
+        if (unionSymbol.TypeParameters.IsEmpty)
+        {
+            return ImmutableArray<TypeParameter>.Empty;
+        }
+
+        var builder = ImmutableArray.CreateBuilder<TypeParameter>(unionSymbol.TypeParameters.Length);
+        foreach (var typeParam in unionSymbol.TypeParameters)
+        {
+            builder.Add(new TypeParameter(typeParam.Name, BuildConstraintClause(typeParam)));
+        }
+
+        return builder.MoveToImmutable();
+    }
+
+    /// <summary>
+    /// Builds the <c>where T : ...</c> clause string for a type parameter, or an
+    /// empty string when the parameter is unconstrained.
+    /// The order of constraints follows the C# grammar: special constraints
+    /// (struct/class/notnull/unmanaged) first, then type constraints, then new().
+    /// </summary>
+    private static string BuildConstraintClause(ITypeParameterSymbol typeParam)
+    {
+        var constraints = new List<string>();
+
+        // Primary constraint: struct, class, class?, notnull, or unmanaged.
+        if (typeParam.HasValueTypeConstraint)
+        {
+            // 'unmanaged' implies 'struct'; Roslyn sets HasValueTypeConstraint for both.
+            constraints.Add(typeParam.HasUnmanagedTypeConstraint ? "unmanaged" : "struct");
+        }
+        else if (typeParam.HasReferenceTypeConstraint)
+        {
+            constraints.Add("class");
+        }
+        else if (typeParam.HasNotNullConstraint)
+        {
+            constraints.Add("notnull");
+        }
+
+        // Secondary constraints: base class and interface constraints.
+        foreach (var constraintType in typeParam.ConstraintTypes)
+        {
+            constraints.Add(constraintType.GetFullyQualifiedTypeName());
+        }
+
+        // Constructor constraint must be last.
+        if (typeParam.HasConstructorConstraint)
+        {
+            constraints.Add("new()");
+        }
+
+        return constraints.Count == 0
+            ? string.Empty
+            : $"where {typeParam.Name} : {string.Join(", ", constraints)}";
+    }
+
+    private static void Execute(UnionToGenerate? union, SourceProductionContext context)
+    {
+        if (union is null)
         {
             return;
         }
 
-        foreach (var union in unions)
-        {
-            if (union is null)
-            {
-                continue;
-            }
-
-            var sourceText = GenerateUnion(union);
-            var hintName = GetHintName(union);
-            context.AddSource(hintName, SourceText.From(sourceText, Encoding.UTF8));
-        }
+        var sourceText = GenerateUnion(union);
+        var hintName = GetHintName(union);
+        context.AddSource(hintName, SourceText.From(sourceText, Encoding.UTF8));
     }
 
     private static string GenerateUnion(UnionToGenerate union)
