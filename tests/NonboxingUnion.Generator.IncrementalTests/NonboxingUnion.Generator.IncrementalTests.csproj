@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>$(DefaultGeneratorConsumerFrameworks)</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsTestProject>true</IsTestProject>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CA1707;CA2007;CA1515;CA1034;</NoWarn>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The Roslyn APIs needed to drive the generator with incremental tracking enabled. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Reference the attribute assembly so the test compilations can resolve [NonBoxingUnion]. -->
+    <ProjectReference Include="..\..\src\NonboxingUnion\NonboxingUnion.csproj" />
+    <!-- Reference the generator as a normal assembly (NOT an analyzer): the tests instantiate it
+         directly and drive it through a GeneratorDriver so they can inspect step caching. -->
+    <ProjectReference Include="..\..\src\NonboxingUnion.Generator\NonboxingUnion.Generator.csproj"
+                      ReferenceOutputAssembly="true" />
+  </ItemGroup>
+</Project>

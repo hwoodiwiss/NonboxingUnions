@@ -15,6 +15,13 @@ namespace NonboxingUnion.Generator;
 [Generator]
 public class NonBoxingUnionGenerator : IIncrementalGenerator
 {
+    /// <summary>
+    /// Tracking name for the step that turns a marked struct into the equatable
+    /// <see cref="UnionToGenerate"/> model. Exposed so incremental-caching tests can
+    /// assert this step is reused (rather than re-run) for unrelated edits.
+    /// </summary>
+    public const string GetUnionStep = "GetUnion";
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         IncrementalValuesProvider<UnionToGenerate?> unions = context.SyntaxProvider
@@ -22,10 +29,14 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
                 CodeGeneration.Constants.NonBoxingUnionAttributeName,
                 predicate: static (node, _) => node is StructDeclarationSyntax,
                 transform: static (ctx, _) => GetUnionToGenerate(ctx))
-            .Where(static union => union is not null);
+            .Where(static union => union is not null)
+            .WithTrackingName(GetUnionStep);
 
-        context.RegisterSourceOutput(unions.Collect(),
-            static (spc, source) => Execute(source, spc));
+        // Register the output per-union (rather than over a Collect()ed array) so that
+        // editing or adding one union does not invalidate the generated output of the
+        // others. Each union already produces an independently named source file.
+        context.RegisterSourceOutput(unions,
+            static (spc, union) => Execute(union, spc));
     }
 
     private static UnionToGenerate? GetUnionToGenerate(GeneratorAttributeSyntaxContext context)
@@ -287,24 +298,16 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
             : $"where {typeParam.Name} : {string.Join(", ", constraints)}";
     }
 
-    private static void Execute(ImmutableArray<UnionToGenerate?> unions, SourceProductionContext context)
+    private static void Execute(UnionToGenerate? union, SourceProductionContext context)
     {
-        if (unions.IsDefaultOrEmpty)
+        if (union is null)
         {
             return;
         }
 
-        foreach (var union in unions)
-        {
-            if (union is null)
-            {
-                continue;
-            }
-
-            var sourceText = GenerateUnion(union);
-            var hintName = GetHintName(union);
-            context.AddSource(hintName, SourceText.From(sourceText, Encoding.UTF8));
-        }
+        var sourceText = GenerateUnion(union);
+        var hintName = GetHintName(union);
+        context.AddSource(hintName, SourceText.From(sourceText, Encoding.UTF8));
     }
 
     private static string GenerateUnion(UnionToGenerate union)
