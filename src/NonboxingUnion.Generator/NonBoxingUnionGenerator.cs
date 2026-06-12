@@ -24,38 +24,52 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        IncrementalValuesProvider<UnionToGenerate?> unions = context.SyntaxProvider
+        IncrementalValuesProvider<UnionParseResult> parseResults = context.SyntaxProvider
             .ForAttributeWithMetadataName(
                 CodeGeneration.Constants.NonBoxingUnionAttributeName,
                 predicate: static (node, _) => node is StructDeclarationSyntax,
-                transform: static (ctx, _) => GetUnionToGenerate(ctx))
-            .Where(static union => union is not null)
-            .WithTrackingName(GetUnionStep);
+                transform: static (ctx, _) => Parse(ctx));
+
+        // Diagnostics describing invalid unions are emitted from a dedicated output so the
+        // extraction stage stays free of Diagnostic/Location references (which would break
+        // incremental caching).
+        context.RegisterSourceOutput(
+            parseResults.SelectMany(static (result, _) => result.Diagnostics),
+            static (spc, diagnostic) => spc.ReportDiagnostic(diagnostic.ToDiagnostic()));
 
         // Register the output per-union (rather than over a Collect()ed array) so that
         // editing or adding one union does not invalidate the generated output of the
         // others. Each union already produces an independently named source file.
+        IncrementalValuesProvider<UnionToGenerate> unions = parseResults
+            .Select(static (result, _) => result.Union)
+            .Where(static union => union is not null)
+            .Select(static (union, _) => union!)
+            .WithTrackingName(GetUnionStep);
+
         context.RegisterSourceOutput(unions,
             static (spc, union) => Execute(union, spc));
     }
 
-    private static UnionToGenerate? GetUnionToGenerate(GeneratorAttributeSyntaxContext context)
+    private static UnionParseResult Parse(GeneratorAttributeSyntaxContext context)
     {
-        if (context.TargetSymbol is not INamedTypeSymbol unionSymbol)
+        if (context.TargetSymbol is not INamedTypeSymbol unionSymbol
+            || context.TargetNode is not StructDeclarationSyntax structDeclaration)
         {
-            return null;
+            return UnionParseResult.None;
         }
 
-        var structDeclaration = (StructDeclarationSyntax)context.TargetNode;
         if (structDeclaration.Modifiers.All(static m => !m.IsKind(SyntaxKind.PartialKeyword)))
         {
-            return null;
+            return Diagnostic(
+                DiagnosticDescriptors.UnionMustBePartial,
+                LocationInfo.CreateFrom(structDeclaration.Identifier),
+                unionSymbol.Name);
         }
 
         var attribute = context.Attributes.FirstOrDefault();
         if (attribute is null)
         {
-            return null;
+            return UnionParseResult.None;
         }
 
         // Variants = type parameters (in declaration order) + any concrete types from the attribute.
@@ -71,29 +85,52 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
 
         if (caseTypes.Count == 0)
         {
-            return null;
+            return Diagnostic(
+                DiagnosticDescriptors.UnionMustDeclareCase,
+                GetAttributeLocation(attribute) ?? LocationInfo.CreateFrom(structDeclaration.Identifier),
+                unionSymbol.Name);
         }
 
         var variants = BuildVariants(caseTypes);
         if (variants.IsDefaultOrEmpty)
         {
-            return null;
+            return UnionParseResult.None;
         }
 
-        var containingTypes = GetContainingTypes(unionSymbol);
+        if (!TryGetContainingTypes(unionSymbol, out var containingTypes, out var unsupportedContainingType))
+        {
+            return Diagnostic(
+                DiagnosticDescriptors.UnsupportedContainingType,
+                LocationInfo.CreateFrom(structDeclaration.Identifier),
+                unsupportedContainingType);
+        }
+
         var containingNamespace = unionSymbol.ContainingNamespace.IsGlobalNamespace
             ? string.Empty
             : unionSymbol.ContainingNamespace.ToDisplayString();
         var typeParameters = GetTypeParameters(unionSymbol);
 
-        return new UnionToGenerate(
+        var union = new UnionToGenerate(
             containingNamespace,
             unionSymbol.GetAccessibilityString(),
             unionSymbol.Name,
             containingTypes,
             variants,
             typeParameters);
+
+        return new UnionParseResult(union, ImmutableArray<DiagnosticInfo>.Empty);
     }
+
+    private static UnionParseResult Diagnostic(
+        DiagnosticDescriptor descriptor,
+        LocationInfo? location,
+        string? messageArgument)
+        => new(null, [new DiagnosticInfo(descriptor, location, messageArgument)]);
+
+    private static LocationInfo? GetAttributeLocation(AttributeData attribute)
+        => attribute.ApplicationSyntaxReference is { } reference
+            ? LocationInfo.CreateFrom(reference.GetSyntax().GetLocation())
+            : null;
 
     private static List<ITypeSymbol> GetCaseTypes(AttributeData attribute)
     {
@@ -223,21 +260,33 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
         return builder.ToString();
     }
 
-    private static ImmutableArray<ContainingType> GetContainingTypes(INamedTypeSymbol unionSymbol)
+    private static bool TryGetContainingTypes(
+        INamedTypeSymbol unionSymbol,
+        out ImmutableArray<ContainingType> containingTypes,
+        out string? unsupportedContainingType)
     {
         var stack = new Stack<ContainingType>();
         var current = unionSymbol.ContainingType;
         while (current is not null)
         {
+            if (!current.TryGetTypeKindKeyword(out var keyword))
+            {
+                containingTypes = ImmutableArray<ContainingType>.Empty;
+                unsupportedContainingType = current.Name;
+                return false;
+            }
+
             stack.Push(new ContainingType(
                 current.GetAccessibilityString(),
                 current.IsStatic,
-                current.GetTypeKindKeyword(),
+                keyword,
                 current.Name));
             current = current.ContainingType;
         }
 
-        return [.. stack];
+        containingTypes = [.. stack];
+        unsupportedContainingType = null;
+        return true;
     }
 
     private static ImmutableArray<TypeParameter> GetTypeParameters(INamedTypeSymbol unionSymbol)
@@ -298,13 +347,8 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
             : $"where {typeParam.Name} : {string.Join(", ", constraints)}";
     }
 
-    private static void Execute(UnionToGenerate? union, SourceProductionContext context)
+    private static void Execute(UnionToGenerate union, SourceProductionContext context)
     {
-        if (union is null)
-        {
-            return;
-        }
-
         var sourceText = GenerateUnion(union);
         var hintName = GetHintName(union);
         context.AddSource(hintName, SourceText.From(sourceText, Encoding.UTF8));
