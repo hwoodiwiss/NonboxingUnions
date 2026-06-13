@@ -16,14 +16,16 @@ internal static class INamedTypeSymbolExtensions
         };
     }
 
-    public static string GetTypeKindKeyword(this INamedTypeSymbol namedTypeSymbol)
+    public static bool TryGetTypeKindKeyword(this INamedTypeSymbol namedTypeSymbol, out string keyword)
     {
-        return namedTypeSymbol.TypeKind switch
+        keyword = namedTypeSymbol.TypeKind switch
         {
             TypeKind.Class => "class",
             TypeKind.Struct => "struct",
             TypeKind.Interface => "interface",
-            _ => throw new InvalidOperationException("A non-boxing union must be contained within a class, struct or interface."),
+            _ => string.Empty,
         };
+
+        return keyword.Length != 0;
     }
 }
