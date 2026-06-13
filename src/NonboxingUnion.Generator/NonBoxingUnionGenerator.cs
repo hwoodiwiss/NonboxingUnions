@@ -24,30 +24,31 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        IncrementalValuesProvider<UnionParseResult> parseResults = context.SyntaxProvider
-            .ForAttributeWithMetadataName(
-                CodeGeneration.Constants.NonBoxingUnionAttributeName,
-                predicate: static (node, _) => node is StructDeclarationSyntax,
-                transform: static (ctx, _) => Parse(ctx));
+        // The attribute comes in two forms that share a name: the non-generic
+        // [NonBoxingUnion(typeof(...))] overload and the generic [NonBoxingUnion<...>]
+        // arities. ForAttributeWithMetadataName matches a single metadata name, so each
+        // form (the generics carry an arity suffix) is registered as its own provider.
+        foreach (var attributeName in CodeGeneration.Constants.NonBoxingUnionAttributeNames())
+        {
+            IncrementalValuesProvider<UnionParseResult> parseResults = context.SyntaxProvider
+                .ForAttributeWithMetadataName(
+                    attributeName,
+                    predicate: static (node, _) => node is StructDeclarationSyntax,
+                    transform: static (ctx, _) => Parse(ctx));
 
-        // Diagnostics describing invalid unions are emitted from a dedicated output so the
-        // extraction stage stays free of Diagnostic/Location references (which would break
-        // incremental caching).
-        context.RegisterSourceOutput(
-            parseResults.SelectMany(static (result, _) => result.Diagnostics),
-            static (spc, diagnostic) => spc.ReportDiagnostic(diagnostic.ToDiagnostic()));
+            context.RegisterSourceOutput(
+                parseResults.SelectMany(static (result, _) => result.Diagnostics),
+                static (spc, diagnostic) => spc.ReportDiagnostic(diagnostic.ToDiagnostic()));
 
-        // Register the output per-union (rather than over a Collect()ed array) so that
-        // editing or adding one union does not invalidate the generated output of the
-        // others. Each union already produces an independently named source file.
-        IncrementalValuesProvider<UnionToGenerate> unions = parseResults
-            .Select(static (result, _) => result.Union)
-            .Where(static union => union is not null)
-            .Select(static (union, _) => union!)
-            .WithTrackingName(GetUnionStep);
+            IncrementalValuesProvider<UnionToGenerate> unions = parseResults
+                .Select(static (result, _) => result.Union)
+                .Where(static union => union is not null)
+                .Select(static (union, _) => union!)
+                .WithTrackingName(GetUnionStep);
 
-        context.RegisterSourceOutput(unions,
-            static (spc, union) => Execute(union, spc));
+            context.RegisterSourceOutput(unions,
+                static (spc, union) => Execute(union, spc));
+        }
     }
 
     private static UnionParseResult Parse(GeneratorAttributeSyntaxContext context)
@@ -72,9 +73,6 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
             return UnionParseResult.None;
         }
 
-        // Variants = type parameters (in declaration order) + any concrete types from the attribute.
-        // This lets callers write [NonBoxingUnion] on a generic struct to use only the type
-        // parameters as variants, or mix in concrete types via typeof(...).
         var caseTypes = new List<ITypeSymbol>(unionSymbol.TypeParameters.Length);
         foreach (var typeParam in unionSymbol.TypeParameters)
         {
@@ -110,15 +108,15 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
             : unionSymbol.ContainingNamespace.ToDisplayString();
         var typeParameters = GetTypeParameters(unionSymbol);
 
-        var union = new UnionToGenerate(
-            containingNamespace,
-            unionSymbol.GetAccessibilityString(),
-            unionSymbol.Name,
-            containingTypes,
-            variants,
-            typeParameters);
-
-        return new UnionParseResult(union, ImmutableArray<DiagnosticInfo>.Empty);
+        return new UnionParseResult(
+            new UnionToGenerate(
+                containingNamespace,
+                unionSymbol.GetAccessibilityString(),
+                unionSymbol.Name,
+                containingTypes,
+                variants,
+                typeParameters),
+            ImmutableArray<DiagnosticInfo>.Empty);
     }
 
     private static UnionParseResult Diagnostic(
@@ -136,7 +134,23 @@ public class NonBoxingUnionGenerator : IIncrementalGenerator
     {
         var caseTypes = new List<ITypeSymbol>();
 
-        // The attribute takes a single params Type[] parameter.
+        // Generic form: [NonBoxingUnion<Dog, Cat>] — the case types are the attribute's
+        // own type arguments rather than constructor values.
+        if (attribute.AttributeClass is { IsGenericType: true } genericAttribute)
+        {
+            foreach (var typeArgument in genericAttribute.TypeArguments)
+            {
+                if (typeArgument.TypeKind != TypeKind.Error)
+                {
+                    caseTypes.Add(typeArgument);
+                }
+            }
+
+            return caseTypes;
+        }
+
+        // Non-generic form: [NonBoxingUnion(typeof(Dog), typeof(Cat))] — the attribute
+        // takes a single params Type[] parameter.
         if (attribute.ConstructorArguments.Length != 1)
         {
             return caseTypes;

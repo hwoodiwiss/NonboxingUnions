@@ -30,6 +30,17 @@ using NonboxingUnion;
 public partial struct IntOrBool;
 ```
 
+Alternatively, supply the case types as generic type arguments. This reads a little more naturally and is checked by the compiler in the same way as any other generic argument. There is a generic overload for each arity from one up to sixteen case types:
+
+```csharp
+using NonboxingUnion;
+
+[NonBoxingUnion<int, bool>]
+public partial struct IntOrBool;
+```
+
+Both forms produce identical generated code; pick whichever you prefer.
+
 **Assigning a case** uses the implicit conversions provided by the union language feature:
 
 ```csharp
@@ -122,6 +133,6 @@ For more detail on storage layout and the generated members, see [docs/generated
 ## Requirements
 
 - The annotated type must be a `partial struct`.
-- It must declare at least one case: either via `typeof(...)` arguments in the attribute, via generic type parameters on the struct, or both.
+- It must declare at least one case: via `typeof(...)` arguments or generic type arguments on the attribute, via generic type parameters on the struct, or any combination.
 - Every containing type must also be `partial`.
 - A target framework whose runtime provides `System.Runtime.CompilerServices.UnionAttribute` and `IUnion`, with the C# union language feature enabled.
