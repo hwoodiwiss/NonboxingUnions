@@ -29,7 +29,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2  # v5.3.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           global-json-file: ./global.json
 
@@ -75,7 +75,7 @@ jobs:
           name: packages
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2  # v5.3.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
 
       - name: Publish Preview to Github Feed
         run: dotnet nuget push *.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate --no-symbols --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
@@ -98,7 +98,7 @@ jobs:
           name: packages
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2  # v5.3.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
 
       - name: NuGet log in
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841  # v1.2.0
